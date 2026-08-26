@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.env
+quiz_bot.db
+venv/
+.venv/
+*.log
