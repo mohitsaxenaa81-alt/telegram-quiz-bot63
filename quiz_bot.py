@@ -32,7 +32,6 @@ from telegram.error import RetryAfter, TimedOut, NetworkError
 import config
 import db
 from parser import parse_questions_message
-import leaderboard_image
 
 import sys
 import io
@@ -492,14 +491,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "name": "",
         "questions": []
     }
-    welcome_text = (
-        "🎯 <b>Welcome to Telegram Quiz Bot!</b>\n\n"
-        "Aap bilkul free me apni Quiz create kar sakte hain.\n\n"
-        "📝 Kripya <b>Quiz Ka Naam</b> likh kar bhejein:"
-    )
-    await update.message.reply_text(welcome_text, parse_mode="HTML")
-
-
+    await update.message.reply_text("✅ Quiz name भेजें")
 
 
 async def cancel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1028,18 +1020,26 @@ async def send_quiz_created_screen(update: Update, context: ContextTypes.DEFAULT
     safe_quiz_id = html.escape(str(quiz_id))
 
     msg_text = (
-        f"🎉 <b>Quiz Created Successfully!</b>\n\n"
-        f"💳 <b>Name:</b> {safe_name}\n"
-        f"#️⃣ <b>Questions:</b> {q_count}\n"
-        f"⏰ <b>Timer:</b> {timer}s\n"
-        f"🆔 <b>ID:</b> <code>{safe_quiz_id}</code>\n"
-        f"👧 <b>Creator:</b> {safe_creator}"
+        f"Quiz Created! 💬\n\n"
+        f"💳 Name: {safe_name}\n"
+        f"#️⃣ Questions: {q_count}\n"
+        f"⏰ Timer: {timer}s\n"
+        f"🆔 ID: <code>{safe_quiz_id}</code>\n"
+        f"💰 Type: free\n"
+        f"☠️ -ve: 0.00\n"
+        f"👧 Creator: {safe_creator}"
     )
 
     keyboard = [
-        [InlineKeyboardButton("🎯 Start Quiz in Chat", url=start_url)],
-        [InlineKeyboardButton("🚀 Add & Run in Group", url=group_url)],
-        [InlineKeyboardButton("🔗 Share Link", callback_data=f"share_{quiz_id}")]
+        [
+            InlineKeyboardButton("🎯 Start", url=start_url)
+        ],
+        [
+            InlineKeyboardButton("🚀 Group", url=group_url)
+        ],
+        [
+            InlineKeyboardButton("🔗 Share", callback_data=f"share_{quiz_id}")
+        ]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1049,15 +1049,16 @@ async def send_quiz_created_screen(update: Update, context: ContextTypes.DEFAULT
     except Exception as e:
         logger.warning(f"Failed to send quiz created screen with HTML parse_mode: {e}, falling back to plain text")
         plain_msg = (
-            f"Quiz Created!\n\n"
+            f"Quiz Created! 💬\n\n"
             f"💳 Name: {name}\n"
             f"#️⃣ Questions: {q_count}\n"
             f"⏰ Timer: {timer}s\n"
             f"🆔 ID: {quiz_id}\n"
+            f"💰 Type: free\n"
+            f"☠️ -ve: 0.00\n"
             f"👧 Creator: {creator}"
         )
         await target_msg.reply_text(plain_msg, reply_markup=reply_markup)
-
 
 
 async def send_quiz_editor_screen(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_data: dict):
@@ -1069,16 +1070,15 @@ async def send_quiz_editor_screen(update: Update, context: ContextTypes.DEFAULT_
     sections = quiz_data.get("sections", [])
     sec_status_str = f"🟢 Enabled ({len(sections)} Sections)" if sec_enabled == 1 else "⚪ Disabled"
 
-    safe_name = html.escape(str(name))
-    safe_quiz_id = html.escape(str(quiz_id))
-
     msg_text = (
-        f"🎯 <b>Quiz Editor</b>\n\n"
-        f"📌 <b>Name:</b> {safe_name}\n"
-        f"🔢 <b>Questions:</b> {q_count}\n"
-        f"⌚ <b>Timer:</b> {timer}s\n"
-        f"📚 <b>Sections:</b> {sec_status_str}\n"
-        f"🆔 <b>Quiz ID:</b> <code>{safe_quiz_id}</code>"
+        f"🎯 Quiz Editor\n\n"
+        f"📌 Name: {name}\n"
+        f"🔢 Questions: {q_count}\n"
+        f"⌚ Timer: {timer}s\n"
+        f"📚 Sections: {sec_status_str}\n"
+        f"💰 Type: Free\n"
+        f"➖ Negative: 0\n"
+        f"📢 Promo: ❌ None"
     )
 
     toggle_btn_text = "📚 Sections: 🟢 Enabled" if sec_enabled == 1 else "📚 Sections: ⚪ Disabled"
@@ -1109,12 +1109,11 @@ async def send_quiz_editor_screen(update: Update, context: ContextTypes.DEFAULT_
 
     if update.callback_query:
         try:
-            await update.callback_query.message.edit_text(msg_text, reply_markup=reply_markup, parse_mode="HTML")
+            await update.callback_query.message.edit_text(msg_text, reply_markup=reply_markup)
         except Exception:
-            await update.callback_query.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="HTML")
+            await update.callback_query.message.reply_text(msg_text, reply_markup=reply_markup)
     else:
-        await update.message.reply_text(msg_text, reply_markup=reply_markup, parse_mode="HTML")
-
+        await update.message.reply_text(msg_text, reply_markup=reply_markup)
 
 
 async def send_section_manager_screen(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_data: dict):
@@ -1908,60 +1907,63 @@ async def send_quiz_leaderboard(bot, group_id: int, session: dict):
         )
         return
 
-    # Sorting criteria: Correct desc, Accuracy desc, Total Time asc
+    # Sorting criteria:
+    # 1. Score (Correct) descending
+    # 2. Performance % descending
+    # 3. Total Time ascending (faster is better)
     def sort_key(p):
         correct = p["correct"]
         attempted = len(p["attempted_set"])
         perf = (correct / attempted * 100.0) if attempted > 0 else 0.0
-        return (-correct, -perf, p["total_time"])
+        total_time = p["total_time"]
+        return (-correct, -perf, total_time)
 
     sorted_p = sorted(participants, key=sort_key)
 
-    caption_text = (
-        f"🏆🎯 **Quiz Result** 🎯\n"
-        f"📝 **{quiz_name}** (Total Questions: {total_q})\n\n"
-        f"JOIN👉 @PREMIUM_QUIZ  JOIN👉 @Current_afffairs\n"
-        f"JOIN👉 @Up_Constable_UPSI_RO_ARO  JOIN👉 @static_gk_tipss"
-    )
+    msg_lines = [
+        "🏁 Quiz Completed!\n",
+        f"📝 {quiz_name}\n",
+        "🎯 Top Performers:\n"
+    ]
 
-    try:
-        # Generate Graphic Leaderboard Image
-        img_buffer = leaderboard_image.generate_leaderboard_image(
-            participants=sorted_p,
-            quiz_name=quiz_name,
-            max_rows=15
+    rank_emojis = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    for idx, p in enumerate(sorted_p, start=1):
+        name = p["name"]
+        correct = p["correct"]
+        wrong = p["wrong"]
+        attempted = len(p["attempted_set"])
+        score = float(correct)
+        time_str = format_time(p["total_time"])
+
+        accuracy = (correct / total_q * 100.0) if total_q > 0 else 0.0
+        performance = (correct / attempted * 100.0) if attempted > 0 else 0.0
+
+        badge = rank_emojis.get(idx, f"{idx}.")
+
+        line = (
+            f"{badge} {name} | ✅ {correct} | ❌ {wrong} | 🎯 {score:.2f} | "
+            f"⏱️ {time_str} | 📊 {accuracy:.1f}% | 🚀 {performance:.1f}%\n"
+            f"────────────────"
         )
+        msg_lines.append(line)
 
-        await bot.send_photo(
-            chat_id=group_id,
-            photo=img_buffer,
-            caption=caption_text,
-            parse_mode="Markdown"
-        )
-    except Exception as img_err:
-        logger.error(f"Image leaderboard generation failed, falling back to text: {img_err}")
-        
-        # Fallback to Text Leaderboard if Image generation fails
-        msg_lines = [
-            "🏁 **Quiz Completed!**\n",
-            f"📝 **{quiz_name}**\n",
-            "🎯 **Top Performers:**\n"
-        ]
-        rank_emojis = {1: "🥇", 2: "🥈", 3: "🥉"}
+    full_text = "\n".join(msg_lines)
 
-        for idx, p in enumerate(sorted_p[:15], start=1):
-            name = p["name"]
-            correct = p["correct"]
-            wrong = p["wrong"]
-            time_str = format_time(p["total_time"])
-            accuracy = (correct / total_q * 100.0) if total_q > 0 else 0.0
-            badge = rank_emojis.get(idx, f"{idx}.")
-
-            line = f"{badge} **{name}** | ✅ {correct} | ❌ {wrong} | ⏱️ {time_str} | 📊 {accuracy:.1f}%"
-            msg_lines.append(line)
-
-        await bot.send_message(chat_id=group_id, text="\n".join(msg_lines), parse_mode="Markdown")
-
+    # Handle message length limit (4096 chars)
+    if len(full_text) <= 4000:
+        await bot.send_message(chat_id=group_id, text=full_text)
+    else:
+        # Split into multiple chunks
+        chunk = ""
+        for line in msg_lines:
+            if len(chunk) + len(line) + 2 > 4000:
+                await bot.send_message(chat_id=group_id, text=chunk)
+                chunk = line + "\n"
+            else:
+                chunk += line + "\n"
+        if chunk:
+            await bot.send_message(chat_id=group_id, text=chunk)
 
 
 from telegram import Bot
